@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa de Ubicaciones</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    
+    <!-- Tailwind CSS para la interfaz básica -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #map {
+            height: 100vh; /* Ocupa toda la altura de la pantalla */
+            width: 100vw;  /* Ocupa todo el ancho de la pantalla */
+            z-index: 1;
+        }
+        .leaflet-popup-content-wrapper {
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .leaflet-popup-content {
+            margin: 16px;
+            line-height: 1.5;
+        }
+        .popup-title {
+            font-weight: bold;
+            color: #1e3a8a; /* Tailwind blue-900 */
+            margin-bottom: 4px;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 4px;
+        }
+        .popup-detail {
+            color: #4b5563; /* Tailwind gray-600 */
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Panel de Análisis de Rutas -->
+    <div id="route-panel" class="absolute top-4 right-4 bg-white/95 p-4 rounded-lg shadow-xl z-[1000] max-h-[90vh] overflow-y-auto w-80 lg:w-[400px] backdrop-blur-sm border border-gray-200">
+        <h3 class="text-lg font-bold text-blue-900 mb-2 border-b pb-2">Análisis de Tiempos y Ventanas</h3>
+        <div id="route-stats" class="text-sm text-gray-700 space-y-4">
+            <p class="italic text-xs text-gray-500 mb-2">
+                <strong>Simulación Real (OSRM) + Normativa US DOT HOS:</strong><br>
+                - Tiempos de manejo basados en carreteras y límites de velocidad reales.<br>
+                - Máx 11 hrs de manejo diario.<br>
+                - Máx 14 hrs de turno diario (Manejo + 1.5 hrs carga por parada).
+            </p>
+            <div id="loading-indicator" class="text-blue-600 font-bold animate-pulse">Calculando rutas por autopista...</div>
+        </div>
+    </div>
+
+    <!-- Contenedor del Mapa -->
+    <div id="map"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <script>
+        // Datos extraídos de la imagen y actualizados con cluster y frecuencia
+        const locations = [
+            { name: "RHETECH LLC - A HEXPOL COMPANY", city: "Fowlerville", state: "MI", zip: "48836", lat: 42.658, lon: -84.073, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Quincenal" },
+            { name: "K & K STAMPING CO", city: "St Clair Shores", state: "MI", zip: "48080", lat: 42.498, lon: -82.888, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Quincenal" },
+            { name: "DLHBOWLES INC", city: "Mcallen", state: "TX", zip: "78503", lat: 26.226, lon: -98.247, cluster: "MR-3 - Frontera Sur Texas", frecuencia: "Quincenal" },
+            { name: "TRIANGLE RUBBER CO LLC", city: "Goshen", state: "IN", zip: "46526", lat: 41.576, lon: -85.836, cluster: "MR-6 - Indiana Norte (Goshen)", frecuencia: "Quincenal" },
+            { name: "Lumileds", city: "Warren", state: "MI", zip: "48091", lat: 42.470, lon: -83.030, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Quincenal" },
+            { name: "VALEO TRADE SOLUTION", city: "Pharr", state: "TX", zip: "78577", lat: 26.166, lon: -98.183, cluster: "MR-3 - Frontera Sur Texas", frecuencia: "Quincenal" },
+            { name: "RED SPOT", city: "Evansville", state: "IN", zip: "47711", lat: 38.020, lon: -87.567, cluster: "MR-4 - Indiana Sur", frecuencia: "Quincenal" },
+            { name: "LARSEN MANUFACTURING LLC", city: "El Paso", state: "TX", zip: "79936", lat: 31.772, lon: -106.299, cluster: "MR-2 - El Paso local (cross-dock)", frecuencia: "Quincenal" },
+            { name: "MAGNA ELECTRONICS", city: "Holly", state: "MI", zip: "48442", lat: 42.797, lon: -83.624, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Mensual/Esporádica" },
+            { name: "CMAI", city: "Plymouth", state: "MI", zip: "48170", lat: 42.370, lon: -83.480, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Mensual/Esporádica" },
+            { name: "REBO LIGHTING & ELECTRONICS LLC", city: "Sparta", state: "TN", zip: "38583", lat: 35.916, lon: -85.470, cluster: "MR-5 - Tennessee", frecuencia: "Mensual/Esporádica" },
+            { name: "STONERIDGE", city: "El Paso", state: "TX", zip: "79906", lat: 31.793, lon: -106.405, cluster: "MR-2 - El Paso local (cross-dock)", frecuencia: "Mensual/Esporádica" },
+            { name: "PRD INC", city: "Springville", state: "IN", zip: "47462", lat: 38.952, lon: -86.434, cluster: "MR-4 - Indiana Sur", frecuencia: "Mensual/Esporádica" },
+            { name: "RM Customhouse Broker", city: "El Paso", state: "TX", zip: "79936", lat: 31.772, lon: -106.299, cluster: "MR-2 - El Paso local (cross-dock)", frecuencia: "Mensual/Esporádica" },
+            { name: "DUIE PYLE WAREHOUSE", city: "Westampton", state: "NJ", zip: "08060", lat: 39.999, lon: -74.795, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "WL GORE AND ASSOCIATES INC", city: "Elkton", state: "MD", zip: "21921", lat: 39.612, lon: -75.832, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "NANOGATE NORTH AMERICA LLC", city: "Mansfield", state: "OH", zip: "44903", lat: 40.741, lon: -82.553, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "BIZLINK TECH INC.", city: "El Paso", state: "TX", zip: "79932", lat: 31.866, lon: -106.585, cluster: "MR-2 - El Paso local (cross-dock)", frecuencia: "Mensual/Esporádica" },
+            { name: "HENKEL US OPERATIONS CORPORAT", city: "Cannon Falls", state: "MN", zip: "55009", lat: 44.510, lon: -92.905, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "HARISON TOSHIBA LIGHTING (USA), II", city: "Rancho Domingue", state: "CA", zip: "90220", lat: 33.889, lon: -118.227, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "EFC INTERNATIONAL", city: "Hanover Park", state: "IL", zip: "60133", lat: 41.969, lon: -88.145, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "BAXTER ENTERPRISES", city: "Winchester", state: "TN", zip: "37398", lat: 35.181, lon: -86.110, cluster: "MR-5 - Tennessee", frecuencia: "Mensual/Esporádica" },
+            { name: "THE MATERIALS GROUP", city: "Rockford", state: "MI", zip: "49341", lat: 43.119, lon: -85.560, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Mensual/Esporádica" },
+            { name: "stellantis - mi", city: "Trenton", state: "MI", zip: "48183", lat: 42.139, lon: -83.193, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Mensual/Esporádica" },
+            { name: "ATF-INC.", city: "Lincolnwood", state: "IL", zip: "60712", lat: 42.005, lon: -87.733, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "LUXIT TENNESSEE, LLC", city: "Pulaski", state: "TN", zip: "38478", lat: 35.200, lon: -87.034, cluster: "MR-5 - Tennessee", frecuencia: "Mensual/Esporádica" },
+            { name: "CMAI Industries", city: "Plymouth", state: "MI", zip: "48170", lat: 42.370, lon: -83.480, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Mensual/Esporádica" },
+            { name: "ELLSWORTH ADHESIVES", city: "Germantown", state: "WI", zip: "53022", lat: 43.228, lon: -88.121, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "DIVERSIFIED INDUSTRIES", city: "Swedesboro", state: "NJ", zip: "08085", lat: 39.749, lon: -75.310, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "W.L Gore & Associates", city: "Elkton", state: "MD", zip: "21921", lat: 39.612, lon: -75.832, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "METEOR SEALING SYSTEMS LLC", city: "Dover", state: "OH", zip: "44622", lat: 40.521, lon: -81.480, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "BAIER & MICHELS USA INC", city: "Greenville", state: "SC", zip: "29607", lat: 34.823, lon: -82.357, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "A RAYMOND TINNERMAN AUTOMOTI", city: "Rochester Hills", state: "MI", zip: "48309", lat: 42.660, lon: -83.130, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Mensual/Esporádica" },
+            { name: "Rhetech", city: "Whitmore Lake", state: "MI", zip: "48189", lat: 42.432, lon: -83.748, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Mensual/Esporádica" },
+            { name: "US FARATHANE", city: "Jackson", state: "TN", zip: "38301", lat: 35.614, lon: -88.825, cluster: "MR-5 - Tennessee", frecuencia: "Mensual/Esporádica" },
+            { name: "KURT J. LESKER, INC.", city: "Glassport", state: "PA", zip: "15045", lat: 40.325, lon: -79.889, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "TECHMER PM", city: "Rancho Domingue", state: "CA", zip: "90220", lat: 33.889, lon: -118.227, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "ALTUGLAS, LLC", city: "Bristol", state: "PA", zip: "19007", lat: 40.108, lon: -74.852, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "TRIANGLE RUBBER", city: "Elkhart", state: "IN", zip: "46516", lat: 41.677, lon: -85.965, cluster: "MR-4 - Indiana Sur", frecuencia: "Mensual/Esporádica" },
+            { name: "Mustang Vacuum Systems Inc.", city: "Sarasota", state: "FL", zip: "34243", lat: 27.388, lon: -82.510, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "COM-CORP INDUSTRIES", city: "Cleveland", state: "OH", zip: "44103", lat: 41.515, lon: -81.638, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "Ravago Americas LLC", city: "Montgomery", state: "IL", zip: "60538", lat: 41.730, lon: -88.339, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "STONERIDGE TED", city: "El Paso", state: "TX", zip: "79906", lat: 31.793, lon: -106.405, cluster: "MR-2 - El Paso local (cross-dock)", frecuencia: "Mensual/Esporádica" },
+            { name: "NITTO", city: "Frankfort", state: "KY", zip: "40601", lat: 38.201, lon: -84.873, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "ASYST TECHNOLOGIES", city: "Kenosha", state: "WI", zip: "53144", lat: 42.583, lon: -87.875, cluster: "Sin ruta (disperso)", frecuencia: "Mensual/Esporádica" },
+            { name: "Inclusive Logistics LLC", city: "El Paso", state: "TX", zip: "79927", lat: 31.658, lon: -106.234, cluster: "MR-2 - El Paso local (cross-dock)", frecuencia: "Mensual/Esporádica" },
+            { name: "HICKS PLASTICS COMPANY, INC.", city: "Macomb", state: "MI", zip: "48042", lat: 42.700, lon: -82.920, cluster: "MR-1 - Michigan / Detroit metro", frecuencia: "Mensual/Esporádica" },
+            { name: "ITW STAMPTECH FASTENERS", city: "Gallatin", state: "TN", zip: "37066", lat: 36.388, lon: -86.446, cluster: "MR-5 - Tennessee", frecuencia: "Mensual/Esporádica" }
+        ];
+
+        // Definir colores para cada cluster
+        const clusterColors = {
+            "MR-1 - Michigan / Detroit metro": "#3b82f6", // Azul
+            "MR-2 - El Paso local (cross-dock)": "#ef4444", // Rojo
+            "MR-3 - Frontera Sur Texas": "#22c55e", // Verde
+            "MR-4 - Indiana Sur": "#a855f7", // Morado
+            "MR-5 - Tennessee": "#f97316", // Naranja
+            "MR-6 - Indiana Norte (Goshen)": "#06b6d4", // Cyan
+            "Sin ruta (disperso)": "#6b7280"  // Gris
+        };
+
+        // Inicializar el mapa centrado en EE. UU.
+        const map = L.map('map').setView([39.8283, -98.5795], 4);
+
+        // Capa de mapa base (OpenStreetMap)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        const bounds = [];
+        const clusterPoints = {}; // Para agrupar puntos por cluster y trazar rutas
+
+        // Iterar sobre los datos y crear marcadores
+        locations.forEach(loc => {
+            if(loc.lat && loc.lon) {
+                const color = clusterColors[loc.cluster] || "#000000";
+                
+                // Usar CircleMarkers para asignar colores dinámicamente
+                const marker = L.circleMarker([loc.lat, loc.lon], {
+                    radius: 7,
+                    fillColor: color,
+                    color: "#ffffff", // Borde blanco
+                    weight: 1.5,
+                    opacity: 1,
+                    fillOpacity: 0.9
+                }).addTo(map);
+                
+                // GUARDAR REFERENCIA DEL MARCADOR EN EL OBJETO LOCATION
+                loc.marker = marker;
+                
+                const popupContent = `
+                    <div class="popup-title">${loc.name}</div>
+                    <div class="popup-detail">
+                        <strong>Ciudad:</strong> ${loc.city}, ${loc.state}<br>
+                        <strong>Cluster / Ruta:</strong> <span style="color:${color}; font-weight:bold;">${loc.cluster}</span><br>
+                        <strong>Frecuencia:</strong> ${loc.frecuencia}<br>
+                        <span style="color: #9ca3af; font-size: 0.75rem; font-style: italic;">Calculando horarios y ventanas...</span>
+                    </div>
+                `;
+                
+                marker.bindPopup(popupContent);
+                bounds.push([loc.lat, loc.lon]);
+
+                // Agrupar los puntos para dibujar las rutas lecheras (ignorando los dispersos)
+                if (loc.cluster !== "Sin ruta (disperso)") {
+                    if (!clusterPoints[loc.cluster]) clusterPoints[loc.cluster] = [];
+                    clusterPoints[loc.cluster].push(loc);
+                }
+            }
+        });
+
+        // Función para ordenar puntos por cercanía y simular una ruta lógica
+        function sortPointsByNearest(points) {
+            if (points.length <= 1) return points;
+            const unvisited = [...points];
+            // Empezar por el punto más al norte para tener un orden
+            unvisited.sort((a, b) => b.lat - a.lat);
+            const route = [unvisited.shift()]; 
+            
+            while (unvisited.length > 0) {
+                let lastPoint = route[route.length - 1];
+                let nearestIdx = 0;
+                let minDistance = Infinity;
+                
+                for (let i = 0; i < unvisited.length; i++) {
+                    // Distancia Euclidiana simple (suficiente para agrupar visualmente)
+                    let d = Math.pow(lastPoint.lat - unvisited[i].lat, 2) + Math.pow(lastPoint.lon - unvisited[i].lon, 2);
+                    if (d < minDistance) {
+                        minDistance = d;
+                        nearestIdx = i;
+                    }
+                }
+                route.push(unvisited.splice(nearestIdx, 1)[0]);
+            }
+            return route;
+        }
+
+        // --- NUEVO MOTOR DE RUTAS: OSRM + US DOT HOS ---
+        const elPasoCrossDock = { lat: 31.772, lon: -106.299 }; // Referencia para el Linehaul a Juárez/El Paso
+        const routeStatsDiv = document.getElementById('route-stats');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        
+        // Función auxiliar para retrasar peticiones y no saturar la API pública
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+
+        async function fetchAndDrawRoutes() {
+            let statsHTML = "";
+
+            for (const clusterName of Object.keys(clusterPoints)) {
+                const points = clusterPoints[clusterName];
+                if (points.length > 1) {
+                    const orderedPoints = sortPointsByNearest(points);
+                    
+                    try {
+                        // 1. Trazar el Milk Run usando OSRM
+                        const coordsString = orderedPoints.map(p => `${p.lon},${p.lat}`).join(';');
+                        const mrUrl = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
+                        
+                        const mrResponse = await fetch(mrUrl);
+                        const mrData = await mrResponse.json();
+                        
+                        if (mrData.code !== 'Ok') throw new Error("OSRM API error");
+
+                        const mrRoute = mrData.routes[0];
+                        const mrDistanceMiles = mrRoute.distance * 0.000621371; // metros a millas
+                        const mrDriveHours = mrRoute.duration / 3600; // segundos a horas
+
+                        // Dibujar la ruta real en el mapa
+                        L.geoJSON(mrRoute.geometry, {
+                            style: {
+                                color: clusterColors[clusterName],
+                                weight: 4,
+                                opacity: 0.8
+                            }
+                        }).addTo(map);
+
+                        // --- ACTUALIZAR POPUPS CON ORDEN Y HORARIOS DE VENTANA ---
+                        // Asumimos inicio de ruta el Día 1 a las 08:00 AM
+                        let currentAbsoluteHours = 8; 
+
+                        if (!clusterName.includes("Sin ruta")) {
+                            orderedPoints.forEach((p, index) => {
+                                // 1. Calcular Horario de Llegada
+                                let dayLlegada = Math.floor(currentAbsoluteHours / 24) + 1;
+                                let hrLlegada = Math.floor(currentAbsoluteHours % 24);
+                                let minLlegada = Math.round((currentAbsoluteHours % 1) * 60);
+                                let arrivalStr = `Día ${dayLlegada} - ${hrLlegada.toString().padStart(2, '0')}:${minLlegada.toString().padStart(2, '0')} hrs`;
+                                
+                                // 2. Sumar 1.5 hrs de ventana de carga en andén
+                                currentAbsoluteHours += 1.5; 
+                                
+                                // 3. Calcular Horario de Salida
+                                let daySalida = Math.floor(currentAbsoluteHours / 24) + 1;
+                                let hrSalida = Math.floor(currentAbsoluteHours % 24);
+                                let minSalida = Math.round((currentAbsoluteHours % 1) * 60);
+                                let departureStr = `Día ${daySalida} - ${hrSalida.toString().padStart(2, '0')}:${minSalida.toString().padStart(2, '0')} hrs`;
+
+                                // 4. Actualizar el contenido de la viñeta (popup)
+                                let color = clusterColors[clusterName];
+                                let newPopupContent = `
+                                    <div class="popup-title">${p.name}</div>
+                                    <div class="popup-detail">
+                                        <strong>Ciudad:</strong> ${p.city}, ${p.state}<br>
+                                        <strong>Cluster / Ruta:</strong> <span style="color:${color}; font-weight:bold;">${p.cluster}</span><br>
+                                        <strong>Frecuencia:</strong> ${p.frecuencia}<br>
+                                        <hr style="margin: 8px 0; border-top: 1px dashed #cbd5e1;">
+                                        <div style="background-color: #f8fafc; padding: 8px; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.85rem;">
+                                            <div style="margin-bottom: 4px;"><strong>Orden Recolección:</strong> <span style="background:${color}; color:white; padding: 2px 6px; border-radius: 12px; font-weight:bold;">#${index + 1} de ${orderedPoints.length}</span></div>
+                                            <div style="color: #15803d;"><strong>🟢 Llegada est.:</strong> ${arrivalStr}</div>
+                                            <div style="color: #b91c1c;"><strong>🔴 Salida est.:</strong> ${departureStr}</div>
+                                        </div>
+                                    </div>
+                                `;
+                                
+                                if (p.marker) {
+                                    p.marker.setPopupContent(newPopupContent);
+                                }
+
+                                // 5. Calcular traslado al SIGUIENTE punto y aplicar regla de descanso
+                                if (index < orderedPoints.length - 1 && mrRoute.legs && mrRoute.legs[index]) {
+                                    let driveTimeHrs = mrRoute.legs[index].duration / 3600;
+                                    
+                                    // REGLA DE DEBATE: Si el manejo hace que lleguen después de las 8:00 PM (20:00 hrs)
+                                    // Forzamos al chofer a dormir (pernocta) e iniciar el manejo a las 08:00 AM del día siguiente.
+                                    if ((currentAbsoluteHours % 24) + driveTimeHrs > 20) {
+                                        let currentDayFloor = Math.floor(currentAbsoluteHours / 24);
+                                        currentAbsoluteHours = (currentDayFloor + 1) * 24 + 8; // 8 AM del día siguiente
+                                    }
+                                    
+                                    currentAbsoluteHours += driveTimeHrs; // Sumar el tiempo de manejo
+                                }
+                            });
+                        }
+
+                        // 2. Cálculos Logísticos (US DOT HOS)
+                        if (!clusterName.includes("El Paso local") && !clusterName.includes("Frontera Sur Texas")) {
+                            const numStops = orderedPoints.length;
+                            const pickupTimeHours = numStops * 1.5; // 1.5 horas de andén por parada
+                            
+                            // Turno total del Milk Run (Manejo + Carga)
+                            const totalDutyHours = mrDriveHours + pickupTimeHours;
+                            
+                            // Cálculo de días de MR basado en la regla de 14 horas de turno (y verificando 11 de manejo)
+                            // Un turno termina si supera las 14 horas totales o las 11 de manejo puro.
+                            let mrDays = Math.max(
+                                Math.ceil(totalDutyHours / 14), 
+                                Math.ceil(mrDriveHours / 11)
+                            );
+
+                            // 3. Trazar Linehaul (Última parada hasta El Paso)
+                            const lastStop = orderedPoints[orderedPoints.length - 1];
+                            const lhUrl = `https://router.project-osrm.org/route/v1/driving/${lastStop.lon},${lastStop.lat};${elPasoCrossDock.lon},${elPasoCrossDock.lat}?overview=false`;
+                            
+                            await delay(500); // Pausa para no saturar la API
+                            const lhResponse = await fetch(lhUrl);
+                            const lhData = await lhResponse.json();
+                            
+                            const lhDistanceMiles = lhData.routes[0].distance * 0.000621371;
+                            const lhDriveHours = lhData.routes[0].duration / 3600;
+                            
+                            // Linehaul es puro manejo. Aplica regla de 11 horas de manejo diario.
+                            const transitDaysToBorder = Math.ceil(lhDriveHours / 11);
+
+                            statsHTML += `
+                                <div class="border-l-4 p-2 bg-gray-50 mb-2 rounded shadow-sm" style="border-color: ${clusterColors[clusterName]}">
+                                    <h4 class="font-bold text-gray-800" style="color: ${clusterColors[clusterName]}">${clusterName}</h4>
+                                    <ul class="mt-1 list-none text-xs space-y-1">
+                                        <li>📍 <strong>Paradas:</strong> ${numStops}</li>
+                                        <li>🚚 <strong>Milk Run:</strong> ${mrDistanceMiles.toFixed(0)} mi | Manejo: ${mrDriveHours.toFixed(1)} hrs | Andenes: ${pickupTimeHours.toFixed(1)} hrs</li>
+                                        <li>🛌 <strong>Días MR (Regla 14h):</strong> ${mrDays} día(s)</li>
+                                        <li>🛣️ <strong>Linehaul a TX:</strong> ${lhDistanceMiles.toFixed(0)} mi | Manejo: ${lhDriveHours.toFixed(1)} hrs</li>
+                                        <li>🛌 <strong>Días Tránsito (Regla 11h):</strong> ${transitDaysToBorder} día(s)</li>
+                                        <li class="font-bold mt-1 bg-yellow-100 p-1 border border-yellow-300 rounded inline-block text-gray-800">
+                                            ⏳ Lead Time Total Chofer Solo: ${mrDays + transitDaysToBorder} días
+                                        </li>
+                                    </ul>
+                                </div>
+                            `;
+                        }
+                    } catch (error) {
+                        console.error("Error obteniendo ruta real para " + clusterName, error);
+                        // Fallback a línea recta si la API falla
+                        const latlngs = orderedPoints.map(p => [p.lat, p.lon]);
+                        L.polyline(latlngs, { color: clusterColors[clusterName], dashArray: '8, 8' }).addTo(map);
+                    }
+                    
+                    await delay(500); // Respetar rate limits de la API pública
+                }
+            }
+
+            loadingIndicator.style.display = 'none';
+            if(statsHTML !== "") {
+                 routeStatsDiv.innerHTML += statsHTML;
+            }
+        }
+
+        // Iniciar el cálculo asíncrono
+        fetchAndDrawRoutes();
+
+        // Añadir una Leyenda
