@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cotización Rutas US-US → Marelli El Paso</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+        .tab-nav {
+            position: absolute; top: 0; left: 0; right: 0;
+            z-index: 2000;
+            background: rgba(15,23,42,0.95);
+            display: flex; align-items: center;
+            padding: 6px 12px; gap: 6px;
+            border-bottom: 2px solid #1e40af;
+            backdrop-filter: blur(4px);
+        }
+        .tab-nav a {
+            padding: 5px 14px; border-radius: 6px; font-size: 0.78rem; font-weight: 600;
+            text-decoration: none; transition: background 0.15s;
+            color: #94a3b8;
+        }
+        .tab-nav a:hover { background: #1e293b; color: #e2e8f0; }
+        .tab-nav a.active { background: #1e40af; color: #ffffff; }
+        .tab-nav .logo { color: #60a5fa; font-weight: 700; font-size: 0.82rem; margin-right: 8px; white-space: nowrap; }
+        #map { padding-top: 38px; box-sizing: border-box; }
+        .leaflet-popup-content-wrapper { border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .leaflet-popup-content { margin: 14px; line-height: 1.5; min-width: 240px; }
+        .popup-title { font-weight: 700; color: #1e3a8a; margin-bottom: 4px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; font-size: 0.9rem; }
+        .popup-detail { color: #4b5563; font-size: 0.82rem; }
+        .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; color: white; }
+        .vol-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 7px 9px; margin-top: 6px; font-size: 0.8rem; }
+        .vol-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+        .vol-label { color: #64748b; }
+        .vol-value { font-weight: 600; color: #1e293b; }
+        .time-row { display: flex; gap: 6px; margin-top: 4px; }
+        .time-chip { flex: 1; border-radius: 5px; padding: 4px 6px; font-size: 0.75rem; text-align: center; }
+        .arrive { background: #dcfce7; color: #15803d; }
+        .depart { background: #fee2e2; color: #b91c1c; }
+        .legend {
+            background: rgba(255,255,255,0.97); padding: 10px 13px;
+            border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            font-size: 0.78rem; line-height: 1.5; color: #374151;
+            border: 1px solid #e5e7eb;
+        }
+        .legend strong { display: block; margin-bottom: 6px; color: #1e3a8a; font-size: 0.8rem; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 3px; }
+        .legend-dot { width: 11px; height: 11px; border-radius: 50%; margin-right: 7px; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.2); flex-shrink: 0; }
+        .dest-star { font-size: 1rem; margin-right: 5px; line-height: 1; }
+    </style>
+</head>
+<body>
+
+<!-- Navegación de pestañas -->
+<div class="tab-nav">
+    <span class="logo">🚚 US-US Routes</span>
+    <a href="index.html">Mapa General</a>
+    <a href="mapa-cotizacion.html" class="active">Cotización Marelli</a>
+</div>
+
+<!-- Panel lateral de análisis -->
+<div id="route-panel" style="position:absolute;top:46px;right:8px;z-index:1000;width:340px;max-height:calc(90vh - 46px);overflow-y:auto;"
+     class="bg-white/95 p-4 rounded-lg shadow-xl backdrop-blur-sm border border-gray-200">
+    <h3 class="text-sm font-bold text-blue-900 mb-1 border-b pb-1">Análisis de Rutas · US-US → Marelli El Paso</h3>
+    <p class="text-xs text-gray-400 italic mb-2">
+        Equipo: 53' dry van · Cap. ~52 tarimas (doble cama)<br>
+        HOS US DOT: máx 11 h/día manejo · máx 14 h/día turno<br>
+        Ventana andén: 1.5 h/parada
+    </p>
+    <div id="route-stats" class="text-xs text-gray-700 space-y-3">
+        <div id="loading-indicator" class="text-blue-600 font-bold animate-pulse text-sm">Calculando rutas reales (OSRM)…</div>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+// ── DESTINO ──────────────────────────────────────────────────────────────────
+const MARELLI = { lat: 31.772, lon: -106.299, name: "MARELLI / Automotive Lighting", addr: "12112 Rojas Dr STE B, El Paso TX 79936" };
+
+// ── DATOS (del Excel Routes_merge_and_quoting_COMPLETO.xlsx) ─────────────────
+const locations = [
+    // MR-1 · North East (Michigan)
+    { cluster:"MR-1 · North East", name:"Lumileds", addr:"24400 Dequindre Rd", city:"Warren", state:"MI", zip:"48091", lat:42.47, lon:-83.03, frecuencia:"Weekly", tarimas_sem:19.4, peso_sem:10956, tarimas_carga:29.6, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-1 · North East", name:"RHETECH LLC - A HEXPOL COMPANY", addr:"9201 W Grand River Rd", city:"Fowlerville", state:"MI", zip:"48836", lat:42.658, lon:-84.073, frecuencia:"Weekly", tarimas_sem:18.7, peso_sem:31024, tarimas_carga:20.2, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-1 · North East", name:"K & K STAMPING CO", addr:"23015 W Industrial Dr", city:"St Clair Shores", state:"MI", zip:"48080", lat:42.498, lon:-82.888, frecuencia:"Weekly", tarimas_sem:1.8, peso_sem:942, tarimas_carga:2.1, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-1 · North East", name:"Rhetech (Whitmore Lake)", addr:"1500 E North Territorial Rd", city:"Whitmore Lake", state:"MI", zip:"48189", lat:42.432, lon:-83.748, frecuencia:"Weekly", tarimas_sem:1.0, peso_sem:1511, tarimas_carga:26.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-1 · North East", name:"stellantis - mi", addr:"2000 Van Horn Rd", city:"Trenton", state:"MI", zip:"48183", lat:42.139, lon:-83.193, frecuencia:"Weekly", tarimas_sem:0.8, peso_sem:42, tarimas_carga:10.5, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-1 · North East", name:"THE MATERIALS GROUP", addr:"575 Byrne Industrial Dr", city:"Rockford", state:"MI", zip:"49341", lat:43.119, lon:-85.56, frecuencia:"Weekly", tarimas_sem:0.6, peso_sem:1479, tarimas_carga:8.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-1 · North East", name:"CMAI", addr:"15035 Pilot Dr", city:"Plymouth", state:"MI", zip:"48170", lat:42.37, lon:-83.48, frecuencia:"Weekly", tarimas_sem:0.5, peso_sem:150, tarimas_carga:1.1, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-1 · North East", name:"MAGNA ELECTRONICS", addr:"10345 N Holly Rd", city:"Holly", state:"MI", zip:"48442", lat:42.797, lon:-83.624, frecuencia:"Weekly", tarimas_sem:0.5, peso_sem:105, tarimas_carga:1.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-1 · North East", name:"CMAI Industries", addr:"15035 Pilot Dr", city:"Plymouth", state:"MI", zip:"48170", lat:42.37, lon:-83.481, frecuencia:"Weekly", tarimas_sem:0.1, peso_sem:37, tarimas_carga:1.5, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-1 · North East", name:"A RAYMOND TINNERMAN AUTOMOTIVE", addr:"3011 Research Dr", city:"Rochester Hills", state:"MI", zip:"48309", lat:42.66, lon:-83.13, frecuencia:"Weekly", tarimas_sem:0.1, peso_sem:3, tarimas_carga:1.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-1 · North East", name:"HICKS PLASTICS COMPANY, INC.", addr:"51335 Industrial Dr", city:"Macomb", state:"MI", zip:"48042", lat:42.70, lon:-82.92, frecuencia:"Weekly", tarimas_sem:0.0, peso_sem:2, tarimas_carga:1.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+
+    // MR-2 · South East (Indiana + Tennessee)
+    { cluster:"MR-2 · South East", name:"TRIANGLE RUBBER CO LLC", addr:"1801 Eisenhower Dr N", city:"Goshen", state:"IN", zip:"46526", lat:41.576, lon:-85.836, frecuencia:"Weekly", tarimas_sem:10.7, peso_sem:2901, tarimas_carga:15.4, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-2 · South East", name:"PRD INC", addr:"747 Washboard Road", city:"Springville", state:"IN", zip:"47462", lat:38.952, lon:-86.434, frecuencia:"Weekly", tarimas_sem:2.6, peso_sem:786, tarimas_carga:9.6, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-2 · South East", name:"BAXTER ENTERPRISES", addr:"466 Baxter Lane", city:"Winchester", state:"TN", zip:"37398", lat:35.181, lon:-86.11, frecuencia:"Weekly", tarimas_sem:2.3, peso_sem:265, tarimas_carga:29.5, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-2 · South East", name:"RED SPOT", addr:"1016 E Columbia St", city:"Evansville", state:"IN", zip:"47711", lat:38.02, lon:-87.567, frecuencia:"Weekly", tarimas_sem:1.2, peso_sem:2028, tarimas_carga:2.2, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-2 · South East", name:"TRIANGLE RUBBER", addr:"5333 Beck Dr", city:"Elkhart", state:"IN", zip:"46516", lat:41.677, lon:-85.965, frecuencia:"Weekly", tarimas_sem:0.2, peso_sem:56, tarimas_carga:4.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-2 · South East", name:"REBO LIGHTING & ELECTRONICS LLC", addr:"325 Sparta Rd", city:"Sparta", state:"TN", zip:"38583", lat:35.916, lon:-85.47, frecuencia:"Weekly", tarimas_sem:0.4, peso_sem:76, tarimas_carga:1.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-2 · South East", name:"US FARATHANE", addr:"40 Carl Kirkland", city:"Jackson", state:"TN", zip:"38301", lat:35.614, lon:-88.825, frecuencia:"Weekly", tarimas_sem:0.3, peso_sem:98, tarimas_carga:9.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-2 · South East", name:"LUXIT TENNESSEE, LLC", addr:"102 Magneti Marelli Dr", city:"Pulaski", state:"TN", zip:"38478", lat:35.20, lon:-87.034, frecuencia:"Weekly", tarimas_sem:0.2, peso_sem:58, tarimas_carga:2.5, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-2 · South East", name:"ITW STAMPTECH FASTENERS", addr:"850 Steam Plant Rd", city:"Gallatin", state:"TN", zip:"37066", lat:36.388, lon:-86.446, frecuencia:"Weekly", tarimas_sem:0.0, peso_sem:4, tarimas_carga:1.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+
+    // MR-3 · El Paso (consolidación local)
+    { cluster:"MR-3 · El Paso", name:"LARSEN MANUFACTURING LLC", addr:"12150 Rojas Dr", city:"El Paso", state:"TX", zip:"79936", lat:31.772, lon:-106.299, frecuencia:"Weekly", tarimas_sem:0.9, peso_sem:504, tarimas_carga:1.6, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-3 · El Paso", name:"RM Customhouse Broker", addr:"1320 Goodyear Dr", city:"El Paso", state:"TX", zip:"79936", lat:31.772, lon:-106.300, frecuencia:"Weekly", tarimas_sem:0.7, peso_sem:395, tarimas_carga:2.8, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-3 · El Paso", name:"STONERIDGE", addr:"21 Butterfield Trail Blvd", city:"El Paso", state:"TX", zip:"79906", lat:31.793, lon:-106.405, frecuencia:"Weekly", tarimas_sem:0.3, peso_sem:21, tarimas_carga:1.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-3 · El Paso", name:"BIZLINK TECH INC.", addr:"8001 Artcraft Rd", city:"El Paso", state:"TX", zip:"79932", lat:31.866, lon:-106.585, frecuencia:"Daily", tarimas_sem:0.2, peso_sem:286, tarimas_carga:1.7, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-3 · El Paso", name:"STONERIDGE TED", addr:"21 Butterfield Trail", city:"El Paso", state:"TX", zip:"79906", lat:31.794, lon:-106.406, frecuencia:"Daily", tarimas_sem:0.0, peso_sem:2, tarimas_carga:1.0, horario:"Por confirmar", cita:"Por confirmar", contacto:"Por confirmar" },
+    { cluster:"MR-3 · El Paso", name:"EMPIRE", addr:"901 Logistics Ctr Ct", city:"El Paso", state:"TX", zip:"79927", lat:31.658, lon:-106.234, frecuencia:"Daily", tarimas_sem:null, peso_sem:null, tarimas_carga:14.6, horario:"08:00–16:00", cita:"Por confirmar", contacto:"Sandy · 915-791-4315" },
+    { cluster:"MR-3 · El Paso", name:"TRANSMARITIME", addr:"7400 Stiles Dr", city:"El Paso", state:"TX", zip:"79915", lat:31.747, lon:-106.376, frecuencia:"Daily", tarimas_sem:null, peso_sem:null, tarimas_carga:3.2, horario:"08:00–16:00", cita:"Por confirmar", contacto:"Sandy · 915-791-4315" },
+    { cluster:"MR-3 · El Paso", name:"PROTRANS", addr:"12425 Rojas Dr", city:"El Paso", state:"TX", zip:"79928", lat:31.648, lon:-106.196, frecuencia:"Daily", tarimas_sem:null, peso_sem:null, tarimas_carga:16.3, horario:"08:00–16:00", cita:"Por confirmar", contacto:"Jenifer Palomino · 915-888-1837" },
+
+    // FTL · El Paso
+    { cluster:"FTL · El Paso", name:"STAGECOACH", addr:"7167 Chino Dr", city:"El Paso", state:"TX", zip:"79915", lat:31.747, lon:-106.377, frecuencia:"Daily", tarimas_sem:null, peso_sem:null, tarimas_carga:34.4, horario:"08:00–16:00", cita:"Por confirmar", contacto:"Joanne Cho · 201-229-5071" },
+    { cluster:"FTL · El Paso", name:"EP LOGISTICS", addr:"9540 Plaza Circle", city:"El Paso", state:"TX", zip:"79927", lat:31.658, lon:-106.235, frecuencia:"Daily", tarimas_sem:null, peso_sem:null, tarimas_carga:16.4, horario:"08:00–17:00", cita:"Por confirmar", contacto:"Brian Ball · 915-881-9100" },
+];
+
+const clusterColors = {
+    "MR-1 · North East": "#3b82f6",
+    "MR-2 · South East": "#f97316",
+    "MR-3 · El Paso":    "#ef4444",
+    "FTL · El Paso":     "#a855f7",
+};
+const clusterLabels = {
+    "MR-1 · North East": "MR-1 · North East (Michigan)",
+    "MR-2 · South East": "MR-2 · South East (Indiana / Tennessee)",
+    "MR-3 · El Paso":    "MR-3 · El Paso (consolidación local)",
+    "FTL · El Paso":     "FTL · El Paso (carga completa)",
+};
+
+// ── MAPA ─────────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([38.5, -92.0], 4);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+// Marcador destino MARELLI (estrella dorada)
+const mariIcon = L.divIcon({
+    html: `<div style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));">⭐</div>`,
+    className: '', iconAnchor: [11, 22]
+});
+L.marker([MARELLI.lat, MARELLI.lon], { icon: mariIcon })
+    .addTo(map)
+    .bindPopup(`<div class="popup-title" style="color:#b45309;">⭐ DESTINO FINAL</div>
+        <div class="popup-detail"><strong>${MARELLI.name}</strong><br>${MARELLI.addr}</div>`);
+
+const bounds = [[MARELLI.lat, MARELLI.lon]];
+const clusterPoints = {};
+
+locations.forEach(loc => {
+    const color = clusterColors[loc.cluster] || "#6b7280";
+    const marker = L.circleMarker([loc.lat, loc.lon], {
+        radius: 7, fillColor: color, color: "#fff", weight: 1.5, opacity: 1, fillOpacity: 0.9
+    }).addTo(map);
+    loc.marker = marker;
+
+    const volBlock = `
+        <div class="vol-box">
+            <div class="vol-row"><span class="vol-label">Tarimas/sem:</span><span class="vol-value">${loc.tarimas_sem != null ? loc.tarimas_sem : '—'}</span></div>
+            <div class="vol-row"><span class="vol-label">Peso lb/sem:</span><span class="vol-value">${loc.peso_sem != null ? loc.peso_sem.toLocaleString() : '—'}</span></div>
+            <div class="vol-row"><span class="vol-label">Tarimas/carga:</span><span class="vol-value">${loc.tarimas_carga != null ? loc.tarimas_carga : '—'}</span></div>
+            <div class="vol-row"><span class="vol-label">Horario carga:</span><span class="vol-value">${loc.horario}</span></div>
+            <div class="vol-row"><span class="vol-label">Contacto:</span><span class="vol-value" style="font-size:0.7rem;">${loc.contacto}</span></div>
+        </div>`;
+
+    marker.bindPopup(`
+        <div class="popup-title">${loc.name}</div>
+        <div class="popup-detail">
+            <span class="badge" style="background:${color};margin-bottom:4px;display:inline-block;">${loc.cluster}</span><br>
+            <strong>Dirección:</strong> ${loc.addr}, ${loc.city}, ${loc.state} ${loc.zip}<br>
+            <strong>Frecuencia:</strong> ${loc.frecuencia}
+            ${volBlock}
+            <span style="color:#9ca3af;font-size:0.7rem;font-style:italic;">Calculando orden y ventanas…</span>
+        </div>`);
+
+    bounds.push([loc.lat, loc.lon]);
+    if (!clusterPoints[loc.cluster]) clusterPoints[loc.cluster] = [];
+    clusterPoints[loc.cluster].push(loc);
+});
+
+// ── ORDEN POR CERCANÍA ────────────────────────────────────────────────────────
+function sortByNearest(points) {
+    if (points.length <= 1) return points;
+    const unvisited = [...points];
+    unvisited.sort((a, b) => b.lat - a.lat);
+    const route = [unvisited.shift()];
+    while (unvisited.length > 0) {
+        const last = route[route.length - 1];
+        let ni = 0, minD = Infinity;
+        for (let i = 0; i < unvisited.length; i++) {
+            const d = (last.lat - unvisited[i].lat) ** 2 + (last.lon - unvisited[i].lon) ** 2;
+            if (d < minD) { minD = d; ni = i; }
+        }
+        route.push(unvisited.splice(ni, 1)[0]);
+    }
+    return route;
+}
+
+// ── RUTAS OSRM + HOS ──────────────────────────────────────────────────────────
+const delay = ms => new Promise(r => setTimeout(r, ms));
+const routeStatsDiv = document.getElementById('route-stats');
+
+async function fetchAndDrawRoutes() {
+    let statsHTML = '';
+
+    for (const clusterName of Object.keys(clusterPoints)) {
+        const pts = clusterPoints[clusterName];
+        const ordered = sortByNearest(pts);
+        const color = clusterColors[clusterName];
+        const label = clusterLabels[clusterName];
+
+        // Calcular volumen total del cluster
+        const totalTarimas = ordered.reduce((s, p) => s + (p.tarimas_sem || 0), 0);
+        const totalPeso = ordered.reduce((s, p) => s + (p.peso_sem || 0), 0);
+
+        // Para clusters locales (El Paso) sólo dibujamos marcadores con orden
+        const isLocal = clusterName.includes('El Paso');
+
+        try {
+            let mrDistanceMiles = 0, mrDriveHours = 0;
+            let mrRoute = null;
+
+            if (ordered.length > 1 && !isLocal) {
+                const coords = ordered.map(p => `${p.lon},${p.lat}`).join(';');
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`);
+                const data = await res.json();
+                if (data.code !== 'Ok') throw new Error('OSRM error');
+                mrRoute = data.routes[0];
+                mrDistanceMiles = mrRoute.distance * 0.000621371;
+                mrDriveHours = mrRoute.duration / 3600;
+                L.geoJSON(mrRoute.geometry, { style: { color, weight: 4, opacity: 0.8 } }).addTo(map);
+            } else if (isLocal && ordered.length > 1) {
+                // Para El Paso local: líneas rectas entre paradas ordenadas
+                L.polyline(ordered.map(p => [p.lat, p.lon]), { color, weight: 3, opacity: 0.7, dashArray: '6 4' }).addTo(map);
+            }
+
+            // Actualizar popups con orden y ventanas de carga
+            let curHr = 8; // Día 1 08:00 AM
+            ordered.forEach((p, idx) => {
+                const dayArr = Math.floor(curHr / 24) + 1;
+                const hArr = Math.floor(curHr % 24).toString().padStart(2, '0');
+                const mArr = Math.round((curHr % 1) * 60).toString().padStart(2, '0');
+                curHr += 1.5; // 1.5 h en andén
+                const dayDep = Math.floor(curHr / 24) + 1;
+                const hDep = Math.floor(curHr % 24).toString().padStart(2, '0');
+                const mDep = Math.round((curHr % 1) * 60).toString().padStart(2, '0');
+
+                const volBlock = `
+                    <div class="vol-box">
+                        <div class="vol-row"><span class="vol-label">Tarimas/sem:</span><span class="vol-value">${p.tarimas_sem != null ? p.tarimas_sem : '—'}</span></div>
+                        <div class="vol-row"><span class="vol-label">Peso lb/sem:</span><span class="vol-value">${p.peso_sem != null ? p.peso_sem.toLocaleString() : '—'}</span></div>
+                        <div class="vol-row"><span class="vol-label">Tarimas/carga:</span><span class="vol-value">${p.tarimas_carga != null ? p.tarimas_carga : '—'}</span></div>
+                        <div class="vol-row"><span class="vol-label">Horario carga:</span><span class="vol-value">${p.horario}</span></div>
+                        <div class="vol-row"><span class="vol-label">Contacto:</span><span class="vol-value" style="font-size:0.7rem;">${p.contacto}</span></div>
+                    </div>`;
+
+                const content = `
+                    <div class="popup-title">${p.name}</div>
+                    <div class="popup-detail">
+                        <span class="badge" style="background:${color};margin-bottom:4px;display:inline-block;">${p.cluster}</span><br>
+                        <strong>Dir:</strong> ${p.addr}, ${p.city}, ${p.state}<br>
+                        <strong>Frecuencia:</strong> ${p.frecuencia}
+                        ${volBlock}
+                        <hr style="margin:7px 0;border-top:1px dashed #cbd5e1;">
+                        <div style="font-size:0.8rem;">
+                            <div style="margin-bottom:3px;">
+                                <strong>Orden:</strong>
+                                <span class="badge" style="background:${color};">#${idx + 1} / ${ordered.length}</span>
+                            </div>
+                            <div class="time-row">
+                                <div class="time-chip arrive">🟢 Llegada<br>Día ${dayArr} ${hArr}:${mArr}</div>
+                                <div class="time-chip depart">🔴 Salida<br>Día ${dayDep} ${hDep}:${mDep}</div>
+                            </div>
+                        </div>
+                    </div>`;
+                if (p.marker) p.marker.setPopupContent(content);
+
+                // Aplicar tiempo de traslado al siguiente punto
+                if (!isLocal && mrRoute && mrRoute.legs && mrRoute.legs[idx]) {
+                    const driveH = mrRoute.legs[idx].duration / 3600;
+                    if ((curHr % 24) + driveH > 20) {
+                        curHr = (Math.floor(curHr / 24) + 1) * 24 + 8;
+                    }
+                    curHr += driveH;
+                } else if (isLocal) {
+                    // Entre paradas locales: asumir 30 min de traslado
+                    if ((curHr % 24) + 0.5 > 20) curHr = (Math.floor(curHr / 24) + 1) * 24 + 8;
+                    curHr += 0.5;
+                }
+            });
+
+            // ── Panel lateral: stats por cluster ─────────────────────────────
+            if (isLocal) {
+                const totalCarga = ordered.reduce((s, p) => s + (p.tarimas_carga || 0), 0);
+                statsHTML += `
+                    <div class="border-l-4 p-2 bg-gray-50 rounded shadow-sm" style="border-color:${color}">
+                        <div class="font-bold" style="color:${color}">${label}</div>
+                        <ul class="mt-1 space-y-0.5 text-xs">
+                            <li>📍 <strong>Paradas:</strong> ${ordered.length}</li>
+                            <li>📦 <strong>Total tarimas/carga:</strong> ${totalCarga.toFixed(1)}</li>
+                            <li>🚚 <strong>Tipo:</strong> ${clusterName.startsWith('FTL') ? 'Full Truckload diario' : 'Consolidación local diaria/semanal'}</li>
+                            <li>📏 <strong>Ruta:</strong> En área El Paso (0–18 mi a destino)</li>
+                        </ul>
+                        <div style="margin-top:5px;font-size:0.7rem;">
+                            ${ordered.map((p, i) => `<span class="badge" style="background:${color};margin:1px 2px;">#${i+1} ${p.name}</span>`).join('')}
+                        </div>
+                    </div>`;
+            } else {
+                const numStops = ordered.length;
+                const pickupH = numStops * 1.5;
+                const totalDutyH = mrDriveHours + pickupH;
+                const mrDays = Math.max(Math.ceil(totalDutyH / 14), Math.ceil(mrDriveHours / 11));
+
+                // Linehaul desde última parada hasta Marelli El Paso
+                await delay(400);
+                const last = ordered[ordered.length - 1];
+                const lhRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${last.lon},${last.lat};${MARELLI.lon},${MARELLI.lat}?overview=false`);
+                const lhData = await lhRes.json();
+                const lhMi = lhData.routes[0].distance * 0.000621371;
+                const lhH = lhData.routes[0].duration / 3600;
+                const transitDays = Math.ceil(lhH / 11);
+                const totalDays = mrDays + transitDays;
+
+                statsHTML += `
+                    <div class="border-l-4 p-2 bg-gray-50 rounded shadow-sm" style="border-color:${color}">
+                        <div class="font-bold" style="color:${color}">${label}</div>
+                        <ul class="mt-1 space-y-0.5 text-xs">
+                            <li>📍 <strong>Paradas:</strong> ${numStops}</li>
+                            <li>📦 <strong>Vol. semanal:</strong> ${totalTarimas.toFixed(1)} tar · ${totalPeso.toLocaleString()} lb</li>
+                            <li>🚚 <strong>Milk Run:</strong> ${mrDistanceMiles.toFixed(0)} mi · manejo ${mrDriveHours.toFixed(1)} h · andenes ${pickupH.toFixed(1)} h</li>
+                            <li>🛌 <strong>Días MR (regla 14 h):</strong> ${mrDays} día(s)</li>
+                            <li>🛣️ <strong>Linehaul → El Paso:</strong> ${lhMi.toFixed(0)} mi · ${lhH.toFixed(1)} h manejo</li>
+                            <li>🛌 <strong>Días tránsito (regla 11 h):</strong> ${transitDays} día(s)</li>
+                        </ul>
+                        <div class="mt-1 bg-yellow-100 border border-yellow-300 rounded p-1 text-xs font-bold text-gray-800 inline-block">
+                            ⏳ Lead time total: ${totalDays} días (chofer solo)
+                        </div>
+                        <div style="margin-top:5px;font-size:0.7rem;">
+                            ${ordered.map((p, i) => `<span class="badge" style="background:${color};margin:1px 2px;">#${i+1} ${p.city}</span>`).join(' → ')}
+                            <span style="color:#6b7280;"> → ⭐ El Paso</span>
+                        </div>
+                    </div>`;
+            }
+        } catch (err) {
+            console.error('Error ruta', clusterName, err);
+            if (ordered.length > 1) {
+                L.polyline(ordered.map(p => [p.lat, p.lon]), { color, weight: 3, dashArray: '8 6' }).addTo(map);
+            }
+        }
+        await delay(400);
+    }
+
+    document.getElementById('loading-indicator').style.display = 'none';
+    routeStatsDiv.innerHTML += statsHTML;
+}
+
+fetchAndDrawRoutes();
+
+// ── LEYENDA ───────────────────────────────────────────────────────────────────
+const legend = L.control({ position: 'bottomleft' });
+legend.onAdd = function () {
+    const div = L.DomUtil.create('div', 'legend');
+    let html = '<strong>Clusters · Rutas</strong>';
+    for (const [k, v] of Object.entries(clusterColors)) {
+        html += `<div class="legend-item"><span class="legend-dot" style="background:${v}"></span>${clusterLabels[k]}</div>`;
+    }
+    html += `<div class="legend-item"><span class="dest-star">⭐</span> MARELLI – Destino final</div>`;
+    div.innerHTML = html;
+    return div;
+};
+legend.addTo(map);
+
+// Ajustar vista
+if (bounds.length > 0) map.fitBounds(bounds, { padding: [50, 50] });
+</script>
+</body>
+</html>

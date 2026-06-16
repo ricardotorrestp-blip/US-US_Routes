@@ -12,6 +12,22 @@
     <script src="https://cdn.tailwindcss.com"></script>
 
     <style>
+        .tab-nav {
+            position: absolute; top: 0; left: 0; right: 0;
+            z-index: 2000;
+            background: rgba(15,23,42,0.95);
+            display: flex; align-items: center;
+            padding: 6px 12px; gap: 6px;
+            border-bottom: 2px solid #1e40af;
+            backdrop-filter: blur(4px);
+        }
+        .tab-nav a {
+            padding: 5px 14px; border-radius: 6px; font-size: 0.78rem; font-weight: 600;
+            text-decoration: none; transition: background 0.15s; color: #94a3b8;
+        }
+        .tab-nav a:hover { background: #1e293b; color: #e2e8f0; }
+        .tab-nav a.active { background: #1e40af; color: #ffffff; }
+        .tab-nav .logo { color: #60a5fa; font-weight: 700; font-size: 0.82rem; margin-right: 8px; }
         body, html {
             margin: 0;
             padding: 0;
@@ -20,9 +36,11 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         #map {
-            height: 100vh; /* Ocupa toda la altura de la pantalla */
-            width: 100vw;  /* Ocupa todo el ancho de la pantalla */
+            height: 100vh;
+            width: 100vw;
             z-index: 1;
+            padding-top: 38px;
+            box-sizing: border-box;
         }
         .leaflet-popup-content-wrapper {
             border-radius: 8px;
@@ -69,6 +87,13 @@
     </style>
 </head>
 <body>
+
+    <!-- Navegación de pestañas -->
+    <div class="tab-nav">
+        <span class="logo">🚚 US-US Routes</span>
+        <a href="index.html" class="active">Mapa General</a>
+        <a href="mapa-cotizacion.html">Cotización Marelli</a>
+    </div>
 
     <!-- Panel de Análisis de Rutas -->
     <div id="route-panel" class="absolute top-4 right-4 bg-white/95 p-4 rounded-lg shadow-xl z-[1000] max-h-[90vh] overflow-y-auto w-80 lg:w-[400px] backdrop-blur-sm border border-gray-200">
