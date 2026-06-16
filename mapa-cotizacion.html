@@ -228,7 +228,7 @@ async function fetchAndDrawRoutes() {
             let mrDistanceMiles = 0, mrDriveHours = 0;
             let mrRoute = null;
 
-            if (ordered.length > 1 && !isLocal) {
+            if (ordered.length > 1) {
                 const coords = ordered.map(p => `${p.lon},${p.lat}`).join(';');
                 const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`);
                 const data = await res.json();
@@ -236,10 +236,9 @@ async function fetchAndDrawRoutes() {
                 mrRoute = data.routes[0];
                 mrDistanceMiles = mrRoute.distance * 0.000621371;
                 mrDriveHours = mrRoute.duration / 3600;
-                L.geoJSON(mrRoute.geometry, { style: { color, weight: 4, opacity: 0.8 } }).addTo(map);
-            } else if (isLocal && ordered.length > 1) {
-                // Para El Paso local: líneas rectas entre paradas ordenadas
-                L.polyline(ordered.map(p => [p.lat, p.lon]), { color, weight: 3, opacity: 0.7, dashArray: '6 4' }).addTo(map);
+                L.geoJSON(mrRoute.geometry, {
+                    style: { color, weight: isLocal ? 3 : 4, opacity: 0.85 }
+                }).addTo(map);
             }
 
             // Actualizar popups con orden y ventanas de carga
@@ -283,17 +282,13 @@ async function fetchAndDrawRoutes() {
                     </div>`;
                 if (p.marker) p.marker.setPopupContent(content);
 
-                // Aplicar tiempo de traslado al siguiente punto
-                if (!isLocal && mrRoute && mrRoute.legs && mrRoute.legs[idx]) {
+                // Aplicar tiempo de traslado al siguiente punto (usa tiempos reales OSRM)
+                if (mrRoute && mrRoute.legs && mrRoute.legs[idx]) {
                     const driveH = mrRoute.legs[idx].duration / 3600;
                     if ((curHr % 24) + driveH > 20) {
                         curHr = (Math.floor(curHr / 24) + 1) * 24 + 8;
                     }
                     curHr += driveH;
-                } else if (isLocal) {
-                    // Entre paradas locales: asumir 30 min de traslado
-                    if ((curHr % 24) + 0.5 > 20) curHr = (Math.floor(curHr / 24) + 1) * 24 + 8;
-                    curHr += 0.5;
                 }
             });
 
@@ -307,10 +302,11 @@ async function fetchAndDrawRoutes() {
                             <li>📍 <strong>Paradas:</strong> ${ordered.length}</li>
                             <li>📦 <strong>Total tarimas/carga:</strong> ${totalCarga.toFixed(1)}</li>
                             <li>🚚 <strong>Tipo:</strong> ${clusterName.startsWith('FTL') ? 'Full Truckload diario' : 'Consolidación local diaria/semanal'}</li>
-                            <li>📏 <strong>Ruta:</strong> En área El Paso (0–18 mi a destino)</li>
+                            <li>📏 <strong>Distancia ruta (vialidades):</strong> ${mrDistanceMiles.toFixed(1)} mi · ${mrDriveHours.toFixed(1)} h manejo</li>
                         </ul>
                         <div style="margin-top:5px;font-size:0.7rem;">
-                            ${ordered.map((p, i) => `<span class="badge" style="background:${color};margin:1px 2px;">#${i+1} ${p.name}</span>`).join('')}
+                            ${ordered.map((p, i) => `<span class="badge" style="background:${color};margin:1px 2px;">#${i+1} ${p.name}</span>`).join(' → ')}
+                            <span style="color:#6b7280;"> → ⭐ Marelli</span>
                         </div>
                     </div>`;
             } else {
